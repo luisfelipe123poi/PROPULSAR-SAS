@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Executive Suite - Inteligente Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .annotation-marker {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            background: #0f172a;
+            color: #fbbf24;
+            border: 2px solid #fbbf24;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            transform: translate(-50%, -50%);
+            transition: transform 0.2s ease, background 0.2s ease;
+            z-index: 30;
+        }
+        .annotation-marker:hover {
+            transform: translate(-50%, -50%) scale(1.1);
+            background: #1e293b;
+        }
+
+        .sticky-note {
+            position: absolute;
+            background: #fef08a;
+            color: #713f12;
+            padding: 12px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.2);
+            width: 220px;
+            font-size: 12px;
+            z-index: 35;
+            transform: translate(-10%, -10%);
+            border: 1px solid #fde047;
+        }
+
+        .rect-label {
+            position: absolute;
+            background: rgba(15, 23, 42, 0.9);
+            color: #fbbf24;
+            border: 1px solid #d97706;
+            padding: 5px 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 36;
+            max-width: 180px;
+            word-break: break-word;
+            pointer-events: auto;
+            cursor: pointer;
+            transform: translate(-100%, -100%);
+        }
+        .rect-label:hover {
+            background: #1e293b;
+        }
+
+        .hidden-annotations .annotation-marker,
+        .hidden-annotations .sticky-note,
+        .hidden-annotations .rect-label,
+        .hidden-annotations canvas.drawing-layer {
+            display: none !important;
+        }
+
+        @keyframes smart-pulse {
+            0% { background-color: rgba(251, 191, 36, 0.7); box-shadow: 0 0 25px rgba(251, 191, 36, 0.8); transform: scale(1.02); }
+            50% { background-color: rgba(251, 191, 36, 0.3); box-shadow: 0 0 10px rgba(251, 191, 36, 0.4); transform: scale(1); }
+            100% { background-color: transparent; box-shadow: none; transform: scale(1); }
+        }
+        .smart-highlight-area {
+            position: absolute;
+            width: 260px;
+            height: 120px;
+            border-radius: 16px;
+            border: 2px dashed #d97706;
+            z-index: 28;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            animation: smart-pulse 2s ease-out forwards;
+        }
+
+        canvas.drawing-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 25;
+            pointer-events: none;
+        }
+        canvas.drawing-layer.active {
+            pointer-events: auto;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+<body class="bg-[#0b0f19] text-slate-100 antialiased h-screen flex overflow-hidden selection:bg-amber-500 selection:text-slate-950">
+
+    <!-- MODAL DE IDENTIDAD LUXURY -->
+    <div id="welcomeModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-xl flex items-center justify-center z-50 hidden">
+        <div class="bg-slate-900 border border-slate-800 p-10 rounded-3xl shadow-2xl max-w-md w-full text-center relative overflow-hidden">
+            <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-amber-300 to-amber-600"></div>
+            <span class="text-[10px] uppercase tracking-widest text-amber-400 font-bold">Autenticación Segura</span>
+            <h2 class="text-2xl font-semibold mt-2 mb-1 text-white">Espacio Ejecutivo</h2>
+            <p class="text-slate-400 text-sm mb-8">Ingrese su nombre o representación legal para habilitar la sesión colaborativa.</p>
+            
+            <input type="text" id="guestName" placeholder="Ej. Roberto Valenzuela (Director)" 
+                   class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 mb-6 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition">
+            
+            <button onclick="setIdentity()" 
+                    class="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold py-3.5 rounded-xl hover:brightness-110 transition shadow-lg shadow-amber-500/10">
+                Acceder al Documento VIP
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL CUSTOM DE ENTRADA DE TEXTO FLOTANTE -->
+    <div id="customInputDialog" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+        <div class="bg-slate-900 border border-slate-700/80 p-6 rounded-2xl shadow-2xl max-w-sm w-full relative">
+            <h3 id="customInputTitle" class="text-sm font-bold text-amber-400 uppercase tracking-wide mb-2">Ingrese Nota Ejecutiva</h3>
+            <p id="customInputDesc" class="text-xs text-slate-400 mb-4">Escriba sus observaciones detalladas para esta sección.</p>
+            <textarea id="customInputTextarea" rows="3" placeholder="Escriba aquí..." class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500 transition mb-4 resize-none"></textarea>
+            <div class="flex justify-end gap-2">
+                <button onclick="closeCustomInput(false)" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition">Cancelar</button>
+                <button onclick="closeCustomInput(true)" class="px-4 py-2 bg-amber-500 hover:brightness-110 text-slate-950 rounded-xl text-xs font-bold transition">Guardar Nota</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <div class="flex-1 flex h-full overflow-hidden relative">
+        
+        <!-- BARRA LATERAL IZQUIERDA FIJA DE HERRAMIENTAS -->
+        <aside class="w-72 bg-slate-900/95 backdrop-blur-md border-r border-slate-800/80 flex flex-col h-full z-40 p-4 shrink-0 shadow-2xl overflow-y-auto">
+            <div class="mb-5 pb-4 border-b border-slate-800/80">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-amber-400">Panel de Herramientas</h2>
+                </div>
+                <p class="text-[11px] text-slate-400">Seleccione el modo de interacción para anotaciones.</p>
+            </div>
+
+            <!-- SECCIÓN: ANOTACIONES Y PUNTOS -->
+            <div class="mb-4">
+                <span class="text-[10px] font-bold tracking-wider text-slate-500 uppercase block mb-2 px-1">Señalamientos</span>
+                <div class="space-y-1.5">
+                    <button onclick="setTool('comment')" id="btn-comment" class="w-full flex items-center gap-3 px-3 py-2.5 bg-amber-500 text-slate-950 font-semibold rounded-xl text-xs transition shadow-sm">
+                        <span class="text-base">💬</span>
+                        <div class="text-left">
+                            <div class="font-bold">Nota Puntual</div>
+                            <div class="text-[10px] opacity-80 font-normal">Ancla un marcador numerado</div>
+                        </div>
+                    </button>
+                    <button onclick="setTool('sticky')" id="btn-sticky" class="w-full flex items-center gap-3 px-3 py-2.5 bg-slate-800/70 text-slate-300 hover:bg-slate-800 font-medium rounded-xl text-xs transition border border-slate-700/50">
+                        <span class="text-base">📝</span>
+                        <div class="text-left">
+                            <div class="font-bold text-white">Nota Adhesiva</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Nota tipo post-it flotante</div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- SECCIÓN: ÁREAS Y FIGURAS -->
+            <div class="mb-4">
+                <span class="text-[10px] font-bold tracking-wider text-slate-500 uppercase block mb-2 px-1">Delimitación y Destacados</span>
+                <div class="space-y-1.5">
+                    <button onclick="setTool('highlight')" id="btn-highlight" class="w-full flex items-center gap-3 px-3 py-2.5 bg-slate-800/70 text-slate-300 hover:bg-slate-800 font-medium rounded-xl text-xs transition border border-slate-700/50">
+                        <span class="text-base">✨</span>
+                        <div class="text-left">
+                            <div class="font-bold text-white">Destacar Sección</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Marca puntos de interés</div>
+                        </div>
+                    </button>
+                    <button onclick="setTool('rect')" id="btn-rect" class="w-full flex items-center gap-3 px-3 py-2.5 bg-slate-800/70 text-slate-300 hover:bg-slate-800 font-medium rounded-xl text-xs transition border border-slate-700/50">
+                        <span class="text-base">🔲</span>
+                        <div class="text-left">
+                            <div class="font-bold text-white">Cuadro con Etiqueta</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Caja delimitadora con texto</div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- SECCIÓN: TRAZOS LIBRES -->
+            <div class="mb-6">
+                <span class="text-[10px] font-bold tracking-wider text-slate-500 uppercase block mb-2 px-1">Dibujo Libre</span>
+                <div class="space-y-1.5">
+                    <button onclick="setTool('pencil')" id="btn-pencil" class="w-full flex items-center gap-3 px-3 py-2.5 bg-slate-800/70 text-slate-300 hover:bg-slate-800 font-medium rounded-xl text-xs transition border border-slate-700/50">
+                        <span class="text-base">✏️</span>
+                        <div class="text-left">
+                            <div class="font-bold text-white">Lápiz Libre (45%)</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Trazos firmes y definidos</div>
+                        </div>
+                    </button>
+                    <button onclick="setTool('highlighter30')" id="btn-highlighter30" class="w-full flex items-center gap-3 px-3 py-2.5 bg-slate-800/70 text-slate-300 hover:bg-slate-800 font-medium rounded-xl text-xs transition border border-slate-700/50">
+                        <span class="text-base">🖍️</span>
+                        <div class="text-left">
+                            <div class="font-bold text-white">Marcador Suave (30%)</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Subrayado translúcido</div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-auto pt-4 border-t border-slate-800/80">
+                <!-- BOTÓN DE VISTA ORIGINAL FIJO -->
+                <button id="btnToggleOriginal" onmousedown="toggleOriginalView(true)" onmouseup="toggleOriginalView(false)" onmouseleave="toggleOriginalView(false)" ontouchstart="toggleOriginalView(true)" ontouchend="toggleOriginalView(false)" class="w-full px-3 py-3 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 select-none text-center shadow-lg">
+                    <span>👁️</span> Ver Original (Mantener)
+                </button>
+            </div>
+        </aside>
+
+        <!-- ZONA DE LECTURA E INTERACCIÓN -->
+        <main class="flex-1 h-full overflow-y-auto px-6 py-12 flex justify-center bg-[#0b0f19] relative" id="mainContainer">
+            <div id="canvas" class="w-full max-w-4xl bg-white text-slate-900 shadow-2xl rounded-3xl p-16 min-h-[1100px] relative cursor-crosshair selection:bg-amber-200" onclick="handleCanvasClick(event)">
+                <canvas id="drawingCanvas" class="drawing-layer"></canvas>
+
+                <div class="border-b border-slate-100 pb-8 mb-10 flex justify-between items-end">
+                    <div>
+                        <span class="text-xs font-bold tracking-widest text-amber-600 uppercase">Documento Oficial VIP</span>
+                        <h1 class="text-4xl font-bold tracking-tight text-slate-900 mt-1">Propuesta Comercial y Arquitectura</h1>
+                    </div>
+                    <div class="text-right text-xs text-slate-400 font-medium">Ref: #VIP-2026-08</div>
+                </div>
+
+                <div class="space-y-6 text-slate-700 leading-relaxed text-base">
+                    <p>Este documento constituye un acuerdo de intenciones y especificaciones técnicas de alto nivel. Haga clic en cualquier sección del lienzo para anclar notas de revisión ejecutiva o solicitar modificaciones en tiempo real.</p>
+                    
+                    <div class="p-8 bg-slate-50 border border-slate-200/80 rounded-2xl my-8 shadow-sm">
+                        <h3 class="font-bold text-slate-900 mb-2 text-lg">Sección 1.0 - Estructura de Inversión y Alcance</h3>
+                        <p class="text-sm text-slate-600">La optimización de recursos y la entrega por fases están garantizadas bajo los estándares corporativos establecidos por la dirección general.</p>
+                    </div>
+
+                    <p>Cualquier modificación o adición quedará registrada de forma transparente en el centro de control lateral, asegurando una trazabilidad impecable sin necesidad de archivos adjuntos.</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- PANEL LATERAL DERECHO (CENTRO DE DECISIONES PRO ORIGINAL) -->
+        <aside class="w-[440px] bg-slate-900 border-l border-slate-800/80 flex flex-col h-full shadow-2xl z-30 shrink-0">
+            
+            <!-- ENCABEZADO EJECUTIVO -->
+            <div class="p-5 border-b border-slate-800/80 bg-slate-900/80 backdrop-blur">
+                <div class="flex justify-between items-center mb-3">
+                    <div class="flex items-center gap-2.5">
+                        <span class="relative flex h-2.5 w-2.5">
+                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <h3 class="font-bold text-xs tracking-wider text-white uppercase">Centro de Decisiones Pro</h3>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="userBadge" class="text-[11px] bg-slate-800 text-amber-400 px-3 py-1 rounded-full font-semibold border border-slate-700/80 shadow-inner">Luis Castellar</span>
+                    </div>
+                </div>
+
+                <!-- ACCIONES DE MANDO PRINCIPALES (3 Columnas de Decisiones) -->
+                <div class="grid grid-cols-3 gap-2 mt-3">
+                    <button onclick="executeAction('APROBAR')" class="px-3 py-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-[11px] font-bold transition flex flex-col items-center justify-center gap-1 group">
+                        <span class="text-sm group-hover:scale-110 transition-transform">✅</span>
+                        <span>Aprobar</span>
+                    </button>
+                    <button onclick="executeAction('CAMBIOS')" class="px-3 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl text-[11px] font-bold transition flex flex-col items-center justify-center gap-1 group">
+                        <span class="text-sm group-hover:scale-110 transition-transform">⚠️</span>
+                        <span>Cambios</span>
+                    </button>
+                    <button onclick="exportAuditLog()" class="px-3 py-2.5 bg-slate-800/70 hover:bg-slate-800 text-slate-300 border border-slate-700/60 rounded-xl text-[11px] font-semibold transition flex flex-col items-center justify-center gap-1 group">
+                        <span class="text-sm group-hover:scale-110 transition-transform">📊</span>
+                        <span>Reporte</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- PESTAÑAS DE NAVEGACIÓN INTERNA (Bitácora vs Métricas) -->
+            <div class="flex border-b border-slate-800/80 bg-slate-950/60 text-xs font-semibold">
+                <button onclick="switchTab('feed')" id="tabFeed" class="flex-1 py-3 text-amber-400 border-b-2 border-amber-500 flex items-center justify-center gap-2 transition">
+                    <span>📌 Bitácora de Anotaciones</span>
+                    <span id="activityCountBadge" class="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full text-[10px]">0</span>
+                </button>
+                <button onclick="switchTab('metrics')" id="tabMetrics" class="flex-1 py-3 text-slate-400 hover:text-slate-200 border-b-2 border-transparent flex items-center justify-center gap-2 transition">
+                    <span>📈 Métricas de Revisión</span>
+                </button>
+            </div>
+
+            <!-- CONTENEDOR VISTA 1: BITÁCORA DE ANOTACIONES -->
+            <div id="viewFeed" class="flex-1 flex flex-col overflow-hidden">
+                <div class="px-5 py-2.5 bg-slate-950/30 border-b border-slate-800/40 flex justify-between items-center text-[11px] text-slate-400 font-medium">
+                    <span class="flex items-center gap-1.5">📌 Historial de marcas en lienzo</span>
+                    <span class="text-slate-500 hover:text-slate-300 cursor-pointer" onclick="clearLocalFeed()">Limpiar vista</span>
+                </div>
+                <div id="chatMessages" class="flex-1 overflow-y-auto p-5 space-y-3.5 text-sm">
+                    <!-- Las marcas de anotación se inyectan aquí -->
+                </div>
+            </div>
+
+            <!-- CONTENEDOR VISTA 2: MÉTRICAS -->
+            <div id="viewMetrics" class="flex-1 overflow-y-auto p-5 space-y-4 text-sm hidden">
+                <div class="p-4 bg-slate-950/50 border border-slate-800/80 rounded-2xl">
+                    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Resumen de Anotaciones</h4>
+                    <div class="space-y-2.5 text-xs">
+                        <div class="flex justify-between items-center text-slate-300">
+                            <span class="flex items-center gap-2">💬 Notas Puntuales:</span>
+                            <span id="countTypeComment" class="font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md">0</span>
+                        </div>
+                        <div class="flex justify-between items-center text-slate-300">
+                            <span class="flex items-center gap-2">📝 Notas Adhesivas:</span>
+                            <span id="countTypeSticky" class="font-bold text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-md">0</span>
+                        </div>
+                        <div class="flex justify-between items-center text-slate-300">
+                            <span class="flex items-center gap-2">🔲 Cuadros / Secciones:</span>
+                            <span id="countTypeRect" class="font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md">0</span>
+                        </div>
+                        <div class="flex justify-between items-center text-slate-300">
+                            <span class="flex items-center gap-2">⚡ Decisiones Ejecutivas:</span>
+                            <span id="countTypeAction" class="font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4 bg-slate-950/50 border border-slate-800/80 rounded-2xl">
+                    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Estado del Documento</h4>
+                    <div class="flex items-center gap-3 mt-3">
+                        <div class="w-3 h-3 rounded-full bg-amber-400 animate-pulse"></div>
+                        <div class="text-xs">
+                            <div class="font-bold text-white">En revisión colaborativa</div>
+                            <div class="text-slate-400 text-[11px]">Sincronizado con el servidor en tiempo real</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ZONA INFERIOR DE BITÁCORA PURA (Sin chat de texto general aquí) -->
+            <div class="p-4 bg-slate-900 border-t border-slate-800/80 text-center">
+                <span class="text-[10px] text-slate-500">Usa el botón flotante inferior derecho para chatear y hablar por voz</span>
+            </div>
+        </aside>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- WIDGET FLOTANTE INDEPENDIENTE: CHAT Y VOZ  -->
+    <!-- ========================================== -->
+    <div class="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+        <!-- Panel Desplegable del Chat y Voz -->
+        <div id="floatingChatWindow" class="w-80 sm:w-96 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl mb-4 hidden flex-col overflow-hidden transition-all duration-300 origin-bottom-right">
+            <!-- Encabezado del Widget -->
+            <div class="p-4 bg-slate-950/80 border-b border-slate-800 flex justify-between items-center">
+                <div class="flex items-center gap-2.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <div>
+                        <h3 class="font-bold text-xs text-white uppercase tracking-wider">Chat & Voz en Vivo</h3>
+                        <p class="text-[10px] text-slate-400" id="floatVoiceStatus">Canal independiente (Estrellado / Servidor)</p>
+                    </div>
+                </div>
+                <button onclick="toggleFloatingChat()" class="text-slate-400 hover:text-white p-1 rounded-lg text-xs">✕</button>
+            </div>
+
+            <!-- Módulo de Voz Integrado en el Popup -->
+            <div class="px-4 py-3 bg-slate-950/40 border-b border-slate-800/60 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="text-base">🎙️</span>
+                    <div class="text-xs font-semibold text-slate-200" id="floatVoiceLabelText">Llamada de Voz Centralizada</div>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <button id="btnToggleAudio" onclick="toggleVoiceCall()" class="px-3 py-1.5 bg-emerald-500 hover:brightness-110 text-slate-950 rounded-xl text-[11px] font-bold transition shadow-sm">
+                        <span id="voiceBtnLabel">Conectar Voz</span>
+                    </button>
+                    <button id="btnMuteMic" onclick="toggleMute()" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs transition hidden" title="Silenciar">
+                        🔇
+                    </button>
+                </div>
+            </div>
+            <audio id="remoteAudio" autoplay></audio>
+
+            <!-- Mensajes del Chat Independiente -->
+            <div id="floatChatMessages" class="h-64 overflow-y-auto p-4 space-y-3 text-xs">
+                <div class="text-center text-slate-500 text-[11px] py-2">Inicia la conversación de texto o voz con los revisores.</div>
+            </div>
+
+            <!-- Input de Texto del Chat Flotante -->
+            <div class="p-3 bg-slate-950 border-t border-slate-800">
+                <div class="relative flex items-center">
+                    <input type="text" id="floatMsgInput" placeholder="Escribe un mensaje de chat..." 
+                           class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition pr-10">
+                    <button onclick="sendFloatChatMessage()" class="absolute right-1.5 bg-amber-500 hover:brightness-110 text-slate-950 p-1.5 rounded-lg font-bold transition">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Botón Flotante Principal -->
+        <button onclick="toggleFloatingChat()" class="relative group bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-slate-950 p-4 rounded-full shadow-2xl flex items-center justify-center transition-transform hover:scale-105">
+            <span class="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-slate-950 rounded-full animate-ping"></span>
+            <span class="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-slate-950 rounded-full"></span>
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+        </button>
+    </div>
+
+    <script>
+        var activeTool = 'comment';
+        var commentCount = 0;
+        
+        // Declaración unificada del cliente Socket.IO apuntando al túnel Ngrok activo
+        var socket = null;
+        try {
+            socket = io('https://849d-190-253-0-38.ngrok-free.app');
+        } catch (e) {
+            console.warn("Socket.io no disponible.");
+        }
+
+        var pendingClickData = null;
+        var pendingRectData = null;
+        
+        // Variables WebRTC para Arquitectura de Canal Único (Estrella / Servidor)
+        var localStream = null;
+        var peerConnection = null;
+        var isVoiceConnected = false;
+        var isMuted = false;
+        var iceCandidateQueue = [];
+
+        const rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        const token = window.location.pathname.split('/').pop() || 'demo-token';
+
+        const canvasElem = document.getElementById('drawingCanvas');
+        const ctx = canvasElem.getContext('2d');
+        
+        let isDrawing = false;
+        let points = [];
+        let startX = 0;
+        let startY = 0;
+        let persistentCanvas = document.createElement('canvas');
+        let persistentCtx = persistentCanvas.getContext('2d');
+
+        function resizeCanvas() {
+            const container = document.getElementById('canvas');
+            const width = container.offsetWidth;
+            const height = container.offsetHeight;
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvasElem.width || width;
+            tempCanvas.height = canvasElem.height || height;
+            tempCanvas.getContext('2d').drawImage(persistentCanvas, 0, 0);
+
+            canvasElem.width = width;
+            canvasElem.height = height;
+            persistentCanvas.width = width;
+            persistentCanvas.height = height;
+
+            persistentCtx.drawImage(tempCanvas, 0, 0);
+            ctx.drawImage(persistentCanvas, 0, 0);
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        window.onload = () => {
+            resizeCanvas();
+            const savedName = localStorage.getItem('vip_guest_name');
+            if(!savedName) {
+                document.getElementById('welcomeModal').classList.remove('hidden');
+            } else {
+                document.getElementById('userBadge').innerText = savedName;
+                if(socket) socket.emit('join_document', token);
+            }
+        };
+
+        function toggleOriginalView(showOriginal) {
+            const canvasContainer = document.getElementById('canvas');
+            const btn = document.getElementById('btnToggleOriginal');
+            if (showOriginal) {
+                canvasContainer.classList.add('hidden-annotations');
+                btn.classList.add('bg-amber-500', 'text-slate-950', 'border-amber-400');
+                btn.classList.remove('bg-slate-800', 'text-amber-400');
+            } else {
+                canvasContainer.classList.remove('hidden-annotations');
+                btn.classList.remove('bg-amber-500', 'text-slate-950', 'border-amber-400');
+                btn.classList.add('bg-slate-800', 'text-amber-400');
+            }
+        }
+
+        canvasElem.addEventListener('mousedown', (e) => {
+            if(activeTool !== 'pencil' && activeTool !== 'highlighter30' && activeTool !== 'rect') return;
+            isDrawing = true;
+            const rect = canvasElem.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+            points = [{ x: startX, y: startY }];
+        });
+
+        canvasElem.addEventListener('mousemove', (e) => {
+            if(!isDrawing) return;
+            const rect = canvasElem.getBoundingClientRect();
+            const currentX = e.clientX - rect.left;
+            const currentY = e.clientY - rect.top;
+
+            ctx.clearRect(0, 0, canvasElem.width, canvasElem.height);
+            ctx.drawImage(persistentCanvas, 0, 0);
+
+            if(activeTool === 'pencil' || activeTool === 'highlighter30') {
+                points.push({ x: currentX, y: currentY });
+                drawSmoothStroke(ctx, points, activeTool);
+            } else if(activeTool === 'rect') {
+                ctx.save();
+                ctx.globalAlpha = 0.35;
+                ctx.fillStyle = '#fbbf24';
+                ctx.strokeStyle = '#d97706';
+                ctx.lineWidth = 3;
+                ctx.fillRect(startX, startY, currentX - startX, currentY - startY);
+                ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
+                ctx.restore();
+            }
+        });
+
+        canvasElem.addEventListener('mouseup', (e) => { 
+            if(!isDrawing) return;
+            isDrawing = false;
+            const rect = canvasElem.getBoundingClientRect();
+            const endX = e.clientX - rect.left;
+            const endY = e.clientY - rect.top;
+
+            if(activeTool === 'pencil' || activeTool === 'highlighter30') {
+                if(points.length > 1) {
+                    drawSmoothStroke(persistentCtx, points, activeTool);
+                }
+                points = [];
+                ctx.clearRect(0, 0, canvasElem.width, canvasElem.height);
+                ctx.drawImage(persistentCanvas, 0, 0);
+            } else if(activeTool === 'rect') {
+                persistentCtx.save();
+                persistentCtx.globalAlpha = 0.35;
+                persistentCtx.fillStyle = '#fbbf24';
+                persistentCtx.strokeStyle = '#d97706';
+                persistentCtx.lineWidth = 3;
+                persistentCtx.fillRect(startX, startY, endX - startX, endY - startY);
+                persistentCtx.strokeRect(startX, startY, endX - startX, endY - startY);
+                persistentCtx.restore();
+
+                ctx.clearRect(0, 0, canvasElem.width, canvasElem.height);
+                ctx.drawImage(persistentCanvas, 0, 0);
+
+                pendingRectData = {
+                    x: Math.min(startX, endX),
+                    y: Math.min(startY, endY)
+                };
+
+                document.getElementById('customInputTitle').innerText = "Etiqueta para Cuadro";
+                document.getElementById('customInputDesc').innerText = "Ingrese la información que mostrará este cuadro resaltado:";
+                document.getElementById('customInputTextarea').value = '';
+                document.getElementById('customInputDialog').classList.remove('hidden');
+                document.getElementById('customInputTextarea').focus();
+            }
+        });
+
+        canvasElem.addEventListener('mouseleave', () => { 
+            if(isDrawing) {
+                isDrawing = false;
+                points = [];
+                ctx.clearRect(0, 0, canvasElem.width, canvasElem.height);
+                ctx.drawImage(persistentCanvas, 0, 0);
+            }
+        });
+
+        function drawSmoothStroke(targetCtx, pts, tool) {
+            if(pts.length < 2) return;
+
+            targetCtx.save();
+            targetCtx.globalAlpha = tool === 'pencil' ? 0.45 : 0.30;
+            targetCtx.strokeStyle = '#fbbf24';
+            targetCtx.lineWidth = tool === 'pencil' ? 16 : 28;
+            targetCtx.lineCap = 'round';
+            targetCtx.lineJoin = 'round';
+
+            targetCtx.beginPath();
+            targetCtx.moveTo(pts[0].x, pts[0].y);
+
+            for(let i = 1; i < pts.length - 1; i++) {
+                const xc = (pts[i].x + pts[i + 1].x) / 2;
+                const yc = (pts[i].y + pts[i + 1].y) / 2;
+                targetCtx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+            }
+
+            if(pts.length > 2) {
+                targetCtx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+            }
+
+            targetCtx.stroke();
+            targetCtx.restore();
+        }
+
+        function setIdentity() {
+            const name = document.getElementById('guestName').value.trim();
+            if(!name) return alert("Por favor, ingrese un nombre válido.");
+            localStorage.setItem('vip_guest_name', name);
+            localStorage.setItem('vip_session_id', 'sess_' + Math.random().toString(36).substr(2, 9));
+            document.getElementById('welcomeModal').classList.add('hidden');
+            document.getElementById('userBadge').innerText = name;
+            if(socket) socket.emit('join_document', token);
+        }
+
+        function setTool(tool) {
+            activeTool = tool;
+            const tools = ['comment', 'sticky', 'highlight', 'rect', 'pencil', 'highlighter30'];
+            tools.forEach(t => {
+                const btn = document.getElementById(`btn-${t}`);
+                if(btn) {
+                    if(t === tool) {
+                        btn.className = 'w-full flex items-center gap-3 px-3 py-2.5 bg-amber-500 text-slate-950 font-semibold rounded-xl text-xs transition shadow-sm';
+                        const divTitle = btn.querySelector('div > div:first-child');
+                        const divDesc = btn.querySelector('div > div:last-child');
+                        if(divTitle) divTitle.className = 'font-bold text-slate-950';
+                        if(divDesc) divDesc.className = 'text-[10px] text-slate-900/80 font-normal';
+                    } else {
+                        btn.className = 'w-full flex items-center gap-3 px-3 py-2.5 bg-slate-800/70 text-slate-300 hover:bg-slate-800 font-medium rounded-xl text-xs transition border border-slate-700/50';
+                        const divTitle = btn.querySelector('div > div:first-child');
+                        const divDesc = btn.querySelector('div > div:last-child');
+                        if(divTitle) divTitle.className = 'font-bold text-white';
+                        if(divDesc) divDesc.className = 'text-[10px] text-slate-400 font-normal';
+                    }
+                }
+            });
+
+            if(tool === 'pencil' || tool === 'highlighter30' || tool === 'rect') {
+                canvasElem.classList.add('active');
+            } else {
+                canvasElem.classList.remove('active');
+            }
+        }
+
+        function handleCanvasClick(e) {
+            if(activeTool === 'pencil' || activeTool === 'highlighter30' || activeTool === 'rect') return;
+            if(e.target.closest('.annotation-marker') || e.target.closest('.sticky-note') || e.target.closest('.rect-label')) return;
+
+            const rect = document.getElementById('canvas').getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            pendingClickData = { x, y };
+
+            const titleElem = document.getElementById('customInputTitle');
+            const descElem = document.getElementById('customInputDesc');
+            document.getElementById('customInputTextarea').value = '';
+
+            if(activeTool === 'sticky') {
+                titleElem.innerText = "Crear Nota Adhesiva";
+                descElem.innerText = "Escriba el contenido que se fijará en el documento:";
+            } else if(activeTool === 'comment') {
+                titleElem.innerText = "Nota Ejecutiva Puntual";
+                descElem.innerText = "Ingrese su observación para esta sección:";
+            } else {
+                titleElem.innerText = "Destacar Sección";
+                descElem.innerText = "Ingrese el motivo del marcado en esta área:";
+            }
+
+            document.getElementById('customInputDialog').classList.remove('hidden');
+            document.getElementById('customInputTextarea').focus();
+        }
+
+        function closeCustomInput(confirmed) {
+            const dialog = document.getElementById('customInputDialog');
+            dialog.classList.add('hidden');
+
+            const text = document.getElementById('customInputTextarea').value.trim();
+
+            if (pendingRectData) {
+                const { x, y } = pendingRectData;
+                pendingRectData = null;
+
+                if (!confirmed || !text) return;
+
+                const annotationData = {
+                    authorName: localStorage.getItem('vip_guest_name') || 'Ejecutivo Anónimo',
+                    content: `[RECT] ${text}`,
+                    coordinates: { x, y },
+                    tool: 'rect'
+                };
+
+                if(socket) socket.emit('send_comment', { token, commentData: annotationData });
+                appendAnnotationToFeed(annotationData);
+                renderRectLabel(annotationData);
+                return;
+            }
+
+            if(!confirmed || !pendingClickData) {
+                pendingClickData = null;
+                return;
+            }
+
+            if(!text) {
+                pendingClickData = null;
+                return;
+            }
+
+            const { x, y } = pendingClickData;
+            pendingClickData = null;
+
+            const annotationData = {
+                authorName: localStorage.getItem('vip_guest_name') || 'Ejecutivo Anónimo',
+                content: `[${activeTool.toUpperCase()}] ${text}`,
+                coordinates: { x, y },
+                tool: activeTool
+            };
+
+            if(socket) socket.emit('send_comment', { token, commentData: annotationData });
+            appendAnnotationToFeed(annotationData);
+
+            if(activeTool === 'sticky') {
+                renderSticky(annotationData);
+            } else {
+                renderPin(annotationData);
+            }
+        }
+
+        function renderPin(data) {
+            if(!data.coordinates) return;
+            commentCount++;
+
+            const canvas = document.getElementById('canvas');
+            const pin = document.createElement('div');
+            pin.className = 'annotation-marker';
+            pin.style.left = `${data.coordinates.x}px`;
+            pin.style.top = `${data.coordinates.y}px`;
+            pin.title = `${data.authorName}: ${data.content}`;
+            pin.innerHTML = `<span>#${commentCount}</span>`;
+            canvas.appendChild(pin);
+        }
+
+        function renderSticky(data) {
+            if(!data.coordinates) return;
+            commentCount++;
+
+            const canvas = document.getElementById('canvas');
+            const note = document.createElement('div');
+            note.className = 'sticky-note';
+            note.style.left = `${data.coordinates.x}px`;
+            note.style.top = `${data.coordinates.y}px`;
+            note.innerHTML = `<strong class="block text-[10px] uppercase font-bold text-amber-800 mb-1">${data.authorName}</strong>${data.content.replace('[STICKY] ', '')}`;
+            canvas.appendChild(note);
+        }
+
+        function renderRectLabel(data) {
+            if(!data.coordinates) return;
+            commentCount++;
+
+            const canvas = document.getElementById('canvas');
+            const label = document.createElement('div');
+            label.className = 'rect-label';
+            label.style.left = `${data.coordinates.x - 4}px`;
+            label.style.top = `${data.coordinates.y - 4}px`;
+            label.title = `${data.authorName}`;
+            label.innerHTML = `<span class="block text-[8px] uppercase tracking-wider text-amber-400 font-bold mb-0.5">${data.authorName}</span>${data.content.replace('[RECT] ', '')}`;
+            canvas.appendChild(label);
+        }
+
+        function jumpToDocumentArea(xCoord, yCoord, toolType) {
+            const mainContainer = document.getElementById('mainContainer');
+            mainContainer.scrollTo({ top: yCoord ? yCoord - 200 : 0, behavior: 'smooth' });
+
+            if(xCoord && yCoord) {
+                const canvas = document.getElementById('canvas');
+                const highlightBox = document.createElement('div');
+                highlightBox.className = 'smart-highlight-area';
+                highlightBox.style.left = `${xCoord}px`;
+                highlightBox.style.top = `${yCoord}px`;
+                canvas.appendChild(highlightBox);
+
+                setTimeout(() => {
+                    highlightBox.remove();
+                }, 2000);
+            }
+        }
+
+        function executeAction(type) {
+            const label = type === 'APROBAR' ? 'ACUERDO APROBADO Y SELLADO DIGITALMENTE' : 'SOLICITUD DE CAMBIOS Y MODIFICACIONES';
+            const data = { 
+                token, 
+                commentData: { 
+                    authorName: localStorage.getItem('vip_guest_name') || 'Ejecutivo', 
+                    content: `⚡ ACCIÓN EJECUTADA: ${label}` 
+                } 
+            };
+            if(socket) socket.emit('send_comment', data);
+            appendAnnotationToFeed(data.commentData);
+        }
+
+        // ==========================================
+        // CONTROL DEL CHAT FLOTANTE INDEPENDIENTE
+        // ==========================================
+        function toggleFloatingChat() {
+            const chatWin = document.getElementById('floatingChatWindow');
+            if (chatWin.classList.contains('hidden')) {
+                chatWin.classList.remove('hidden');
+                document.getElementById('floatMsgInput').focus();
+            } else {
+                chatWin.classList.add('hidden');
+            }
+        }
+
+        function sendFloatChatMessage() {
+            const input = document.getElementById('floatMsgInput');
+            const text = input.value.trim();
+            if(!text) return;
+
+            const chatData = {
+                token,
+                chatMessage: {
+                    authorName: localStorage.getItem('vip_guest_name') || 'Ejecutivo',
+                    content: text
+                }
+            };
+
+            if(socket) socket.emit('send_chat_message', chatData);
+            appendFloatMessageToUI(chatData.chatMessage);
+            input.value = '';
+        }
+
+        document.getElementById('floatMsgInput').addEventListener('keypress', (e) => {
+            if(e.key === 'Enter') sendFloatChatMessage();
+        });
+
+        function appendFloatMessageToUI(msg) {
+            const container = document.getElementById('floatChatMessages');
+            container.innerHTML += `
+                <div class="p-2.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1">
+                    <div class="flex justify-between font-bold text-[10px] text-amber-400">
+                        <span>${msg.authorName}</span>
+                    </div>
+                    <p class="text-slate-200">${msg.content}</p>
+                </div>
+            `;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // ==========================================
+        // GESTIÓN DE VOZ: ARQUITECTURA DE CANAL ÚNICO (ESTRELLA / MODERADOR)
+        // ==========================================
+        async function toggleVoiceCall() {
+            const btnToggle = document.getElementById('btnToggleAudio');
+            const btnMute = document.getElementById('btnMuteMic');
+            const statusText = document.getElementById('floatVoiceStatus');
+            const btnLabel = document.getElementById('voiceBtnLabel');
+
+            if (!isVoiceConnected) {
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    
+                    isVoiceConnected = true;
+                    statusText.innerText = "Conectado al Canal Centralizado";
+                    btnToggle.className = "px-3 py-1.5 bg-rose-500 hover:brightness-110 text-white rounded-xl text-[11px] font-bold transition shadow-sm";
+                    btnLabel.innerText = "Colgar Voz";
+                    btnMute.classList.remove('hidden');
+
+                    if (socket) {
+                        socket.emit('join_voice_room', token);
+                    }
+
+                } catch (err) {
+                    console.error("Error al acceder al micrófono:", err);
+                    alert("No se pudo acceder al micrófono. Verifique los permisos del navegador.");
+                }
+            } else {
+                closeVoiceConnection();
+            }
+        }
+
+        function closeVoiceConnection() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            if (socket) {
+                socket.emit('leave_voice_room', token);
+            }
+
+            isVoiceConnected = false;
+            isMuted = false;
+            iceCandidateQueue = [];
+            
+            const btnToggle = document.getElementById('btnToggleAudio');
+            const btnMute = document.getElementById('btnMuteMic');
+            const statusText = document.getElementById('floatVoiceStatus');
+            const btnLabel = document.getElementById('voiceBtnLabel');
+
+            if(statusText) statusText.innerText = "Canal independiente (Estrellado / Servidor)";
+            if(btnToggle) btnToggle.className = "px-3 py-1.5 bg-emerald-500 hover:brightness-110 text-slate-950 rounded-xl text-[11px] font-bold transition shadow-sm";
+            if(btnLabel) btnLabel.innerText = "Conectar Voz";
+            if(btnMute) {
+                btnMute.classList.add('hidden');
+                btnMute.innerText = "🔇";
+            }
+        }
+
+        function toggleMute() {
+            if (!localStream) return;
+            isMuted = !isMuted;
+            localStream.getAudioTracks().forEach(track => {
+                track.enabled = !isMuted;
+            });
+            const btnMute = document.getElementById('btnMuteMic');
+            btnMute.innerText = isMuted ? "🎤 Desmutear" : "🔇";
+            btnMute.className = isMuted 
+                ? "p-1.5 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs transition" 
+                : "p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs transition";
+        }
+
+        function createPeerConnection(isInitiator) {
+            if (peerConnection) return peerConnection;
+
+            peerConnection = new RTCPeerConnection(rtcConfig);
+
+            // 1. Agregar pistas de audio locales individualmente (evita addStream deprecado)
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+            }
+
+            // 2. Capturar pista remota centralizada y enlazarla al elemento de audio
+            peerConnection.ontrack = (event) => {
+                console.log("Pista de audio central recibida:", event.streams);
+                const remoteAudio = document.getElementById('remoteAudio');
+                if (remoteAudio) {
+                    remoteAudio.srcObject = event.streams[0];
+                    remoteAudio.play().then(() => {
+                        console.log("Reproduciendo audio central con éxito.");
+                    }).catch(err => {
+                        console.warn("Autoplay bloqueado por política del navegador. Requiere interacción:", err);
+                    });
+                }
+            };
+
+            // 3. Envío de candidatos ICE generados hacia el nodo central/moderador
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate && socket) {
+                    socket.emit('voice_candidate', { token, candidate: event.candidate });
+                }
+            };
+
+            peerConnection.onconnectionstatechange = () => {
+                console.log("Estado de conexión centralizada:", peerConnection.connectionState);
+                const statusText = document.getElementById('floatVoiceStatus');
+                if(statusText) {
+                    if(peerConnection.connectionState === 'connected') {
+                        statusText.innerText = "Audio Central Conectado";
+                    } else if(peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
+                        statusText.innerText = "Conexión interrumpida";
+                    }
+                }
+            };
+
+            return peerConnection;
+        }
+
+        // Configuración de eventos de WebRTC y Socket.io adaptada a Canal Único Centralizado
+        if(socket) {
+            socket.on('new_comment_received', (c) => {
+                appendAnnotationToFeed(c);
+                if(c.coordinates) {
+                    if(c.tool === 'sticky') renderSticky(c);
+                    else if(c.tool === 'rect') renderRectLabel(c);
+                    else renderPin(c);
+                }
+            });
+
+            socket.on('new_chat_message', (msg) => {
+                appendFloatMessageToUI(msg);
+            });
+
+            socket.on('peer_joined_voice', async () => {
+                if (!isVoiceConnected) return;
+                try {
+                    const pc = createPeerConnection(true);
+                    
+                    if (pc.signalingState !== "stable") {
+                        console.warn("Estado de señalización no estable para oferta:", pc.signalingState);
+                        return;
+                    }
+
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    socket.emit('voice_offer', { token, offer });
+                } catch (e) {
+                    console.error("Error al crear oferta centralizada:", e);
+                }
+            });
+
+            socket.on('voice_offer', async (offer) => {
+                if (!isVoiceConnected) return;
+                try {
+                    const pc = createPeerConnection(false);
+
+                    if (pc.signalingState !== "stable") {
+                        console.warn("Colisión de señalización en oferta. Estado:", pc.signalingState);
+                        return;
+                    }
+
+                    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+                    
+                    // Procesar candidatos ICE acumulados
+                    while (iceCandidateQueue.length > 0) {
+                        const candidate = iceCandidateQueue.shift();
+                        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                    }
+
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    socket.emit('voice_answer', { token, answer });
+                } catch (e) {
+                    console.error("Error al procesar la oferta entrante:", e);
+                }
+            });
+
+            socket.on('voice_answer', async (answer) => {
+                if (peerConnection) {
+                    try {
+                        if (peerConnection.signalingState === "have-local-offer") {
+                            await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                            
+                            // Procesar candidatos ICE acumulados
+                            while (iceCandidateQueue.length > 0) {
+                                const candidate = iceCandidateQueue.shift();
+                                await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                            }
+                        } else {
+                            console.warn("Respuesta ignorada por estado incompatible:", peerConnection.signalingState);
+                        }
+                    } catch (e) {
+                        console.error("Error al aplicar la respuesta remota:", e);
+                    }
+                }
+            });
+
+            socket.on('voice_candidate', async (candidate) => {
+                if (candidate) {
+                    try {
+                        if (peerConnection && peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+                            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                        } else {
+                            // Encolar si el candidato llega antes de la descripción remota
+                            iceCandidateQueue.push(candidate);
+                        }
+                    } catch (e) {
+                        console.error("Error al añadir candidato ICE:", e);
+                    }
+                }
+            });
+        }
+
+        let stats = {
+            comment: 0,
+            sticky: 0,
+            rect: 0,
+            action: 0
+        };
+
+        function switchTab(tab) {
+            const btnFeed = document.getElementById('tabFeed');
+            const btnMetrics = document.getElementById('tabMetrics');
+            const viewFeed = document.getElementById('viewFeed');
+            const viewMetrics = document.getElementById('viewMetrics');
+
+            if (tab === 'feed') {
+                btnFeed.className = "flex-1 py-3 text-amber-400 border-b-2 border-amber-500 flex items-center justify-center gap-2 transition";
+                btnMetrics.className = "flex-1 py-3 text-slate-400 hover:text-slate-200 border-b-2 border-transparent flex items-center justify-center gap-2 transition";
+                viewFeed.classList.remove('hidden');
+                viewMetrics.classList.add('hidden');
+            } else {
+                btnMetrics.className = "flex-1 py-3 text-amber-400 border-b-2 border-amber-500 flex items-center justify-center gap-2 transition";
+                btnFeed.className = "flex-1 py-3 text-slate-400 hover:text-slate-200 border-b-2 border-transparent flex items-center justify-center gap-2 transition";
+                viewMetrics.classList.remove('hidden');
+                viewFeed.classList.add('hidden');
+                updateMetricsUI();
+            }
+        }
+
+        function updateMetricsUI() {
+            document.getElementById('countTypeComment').innerText = stats.comment;
+            document.getElementById('countTypeSticky').innerText = stats.sticky;
+            document.getElementById('countTypeRect').innerText = stats.rect;
+            document.getElementById('countTypeAction').innerText = stats.action;
+        }
+
+        function exportAuditLog() {
+            alert("Generando reporte ejecutivo con la trazabilidad completa del documento...");
+        }
+
+        function clearLocalFeed() {
+            if(confirm("¿Desea limpiar el historial de anotaciones del documento?")) {
+                document.getElementById('chatMessages').innerHTML = '';
+                stats = { comment: 0, sticky: 0, rect: 0, action: 0 };
+                document.getElementById('activityCountBadge').innerText = '0';
+                updateMetricsUI();
+            }
+        }
+
+        function appendAnnotationToFeed(c) {
+            const chat = document.getElementById('chatMessages');
+            const isAction = c.content.includes('ACCIÓN EJECUTADA');
+            
+            if (c.content.includes('[STICKY]')) {
+                stats.sticky++;
+            } else if (c.content.includes('[RECT]')) {
+                stats.rect++;
+            } else if (isAction || c.content.includes('⚡ ACCIÓN EJECUTADA')) {
+                stats.action++;
+            } else {
+                stats.comment++;
+            }
+
+            let totalNotes = stats.comment + stats.sticky + stats.rect + stats.action;
+            const badgeCountElem = document.getElementById('activityCountBadge');
+            if(badgeCountElem) badgeCountElem.innerText = totalNotes;
+            
+            updateMetricsUI();
+
+            let badgeColor = 'bg-slate-800 text-slate-300 border-slate-700';
+            if(c.content.includes('[COMMENT]')) badgeColor = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+            if(c.content.includes('[HIGHLIGHT]')) badgeColor = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+            if(c.content.includes('[STICKY]')) badgeColor = 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
+            if(c.content.includes('[RECT]')) badgeColor = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+            if(isAction) badgeColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+
+            const xPos = c.coordinates ? c.coordinates.x : null;
+            const yPos = c.coordinates ? c.coordinates.y : null;
+            const tool = c.tool || 'comment';
+
+            chat.innerHTML += `
+                <div onclick="jumpToDocumentArea(${xPos}, ${yPos}, '${tool}')" class="p-3.5 bg-slate-950/60 border border-slate-800/80 rounded-2xl space-y-1.5 shadow-sm cursor-pointer hover:border-amber-500/50 transition">
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="font-semibold text-slate-200">${c.authorName}</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded-md border ${badgeColor}">Ver en Documento 🔍</span>
+                    </div>
+                    <p class="text-slate-300 text-xs leading-relaxed">${c.content}</p>
+                </div>
+            `;
+            chat.scrollTop = chat.scrollHeight;
+        }
+    </script>
+</body>
+</html>
