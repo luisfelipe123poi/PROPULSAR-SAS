@@ -1,7 +1,6 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -10,19 +9,10 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-
-// Configuración de CORS para Express
-app.use(cors({
-    origin: ["https://gilded-praline-3d72ee.netlify.app", "http://localhost:3000", "http://localhost:5173"],
-    credentials: true
-}));
-
-// Configuración de CORS para Socket.IO
 const io = new Server(server, {
     cors: {
-        origin: ["https://gilded-praline-3d72ee.netlify.app", "http://localhost:3000", "http://localhost:5173"],
-        methods: ["GET", "POST"],
-        credentials: true
+        origin: "*",
+        methods: ["GET", "POST"]
     }
 });
 
@@ -83,6 +73,7 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(3000, () => {
-    console.log('Servidor VIP corriendo en http://localhost:3000');
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Servidor VIP corriendo en el puerto ${PORT}`);
 });
