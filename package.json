@@ -2,6 +2,7 @@
   "name": "enterprise-backend-vip",
   "version": "1.0.0",
   "description": "Backend para suite ejecutiva con Socket.IO y WebRTC",
+  "license": "MIT",
   "type": "module",
   "main": "server1.js",
   "scripts": {
