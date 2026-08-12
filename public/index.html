@@ -349,7 +349,7 @@
                 </div>
             </div>
 
-            <!-- ZONA INFERIOR DE BITÁCORA PURA (Sin chat de texto general aquí) -->
+            <!-- ZONA INFERIOR DE BITÁCORA PURA -->
             <div class="p-4 bg-slate-900 border-t border-slate-800/80 text-center">
                 <span class="text-[10px] text-slate-500">Usa el botón flotante inferior derecho para chatear y hablar por voz</span>
             </div>
@@ -420,10 +420,10 @@
         var activeTool = 'comment';
         var commentCount = 0;
         
-        // Declaración unificada del cliente Socket.IO apuntando al túnel Ngrok activo
+        // Inicialización del cliente Socket.IO conectado directamente a tu servicio en Render
         var socket = null;
         try {
-            socket = io('https://849d-190-253-0-38.ngrok-free.app');
+            socket = io('https://PROPULSAR-SAS.onrender.com');
         } catch (e) {
             console.warn("Socket.io no disponible.");
         }
@@ -855,7 +855,7 @@
         }
 
         // ==========================================
-        // GESTIÓN DE VOZ: ARQUITECTURA DE CANAL ÚNICO (ESTRELLA / MODERADOR)
+        // GESTIÓN DE VOZ: ARQUITECTURA DE CANAL ÚNICO
         // ==========================================
         async function toggleVoiceCall() {
             const btnToggle = document.getElementById('btnToggleAudio');
@@ -935,50 +935,31 @@
 
             peerConnection = new RTCPeerConnection(rtcConfig);
 
-            // 1. Agregar pistas de audio locales individualmente (evita addStream deprecado)
             if (localStream) {
                 localStream.getTracks().forEach(track => {
                     peerConnection.addTrack(track, localStream);
                 });
             }
 
-            // 2. Capturar pista remota centralizada y enlazarla al elemento de audio
             peerConnection.ontrack = (event) => {
-                console.log("Pista de audio central recibida:", event.streams);
                 const remoteAudio = document.getElementById('remoteAudio');
                 if (remoteAudio) {
                     remoteAudio.srcObject = event.streams[0];
-                    remoteAudio.play().then(() => {
-                        console.log("Reproduciendo audio central con éxito.");
-                    }).catch(err => {
-                        console.warn("Autoplay bloqueado por política del navegador. Requiere interacción:", err);
+                    remoteAudio.play().catch(err => {
+                        console.warn("Autoplay bloqueado:", err);
                     });
                 }
             };
 
-            // 3. Envío de candidatos ICE generados hacia el nodo central/moderador
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate && socket) {
                     socket.emit('voice_candidate', { token, candidate: event.candidate });
                 }
             };
 
-            peerConnection.onconnectionstatechange = () => {
-                console.log("Estado de conexión centralizada:", peerConnection.connectionState);
-                const statusText = document.getElementById('floatVoiceStatus');
-                if(statusText) {
-                    if(peerConnection.connectionState === 'connected') {
-                        statusText.innerText = "Audio Central Conectado";
-                    } else if(peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
-                        statusText.innerText = "Conexión interrumpida";
-                    }
-                }
-            };
-
             return peerConnection;
         }
 
-        // Configuración de eventos de WebRTC y Socket.io adaptada a Canal Único Centralizado
         if(socket) {
             socket.on('new_comment_received', (c) => {
                 appendAnnotationToFeed(c);
@@ -997,17 +978,12 @@
                 if (!isVoiceConnected) return;
                 try {
                     const pc = createPeerConnection(true);
-                    
-                    if (pc.signalingState !== "stable") {
-                        console.warn("Estado de señalización no estable para oferta:", pc.signalingState);
-                        return;
-                    }
-
+                    if (pc.signalingState !== "stable") return;
                     const offer = await pc.createOffer();
                     await pc.setLocalDescription(offer);
                     socket.emit('voice_offer', { token, offer });
                 } catch (e) {
-                    console.error("Error al crear oferta centralizada:", e);
+                    console.error("Error al crear oferta:", e);
                 }
             });
 
@@ -1015,15 +991,9 @@
                 if (!isVoiceConnected) return;
                 try {
                     const pc = createPeerConnection(false);
-
-                    if (pc.signalingState !== "stable") {
-                        console.warn("Colisión de señalización en oferta. Estado:", pc.signalingState);
-                        return;
-                    }
-
+                    if (pc.signalingState !== "stable") return;
                     await pc.setRemoteDescription(new RTCSessionDescription(offer));
                     
-                    // Procesar candidatos ICE acumulados
                     while (iceCandidateQueue.length > 0) {
                         const candidate = iceCandidateQueue.shift();
                         await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -1033,7 +1003,7 @@
                     await pc.setLocalDescription(answer);
                     socket.emit('voice_answer', { token, answer });
                 } catch (e) {
-                    console.error("Error al procesar la oferta entrante:", e);
+                    console.error("Error en oferta entrante:", e);
                 }
             });
 
@@ -1042,17 +1012,13 @@
                     try {
                         if (peerConnection.signalingState === "have-local-offer") {
                             await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-                            
-                            // Procesar candidatos ICE acumulados
                             while (iceCandidateQueue.length > 0) {
                                 const candidate = iceCandidateQueue.shift();
                                 await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
                             }
-                        } else {
-                            console.warn("Respuesta ignorada por estado incompatible:", peerConnection.signalingState);
                         }
                     } catch (e) {
-                        console.error("Error al aplicar la respuesta remota:", e);
+                        console.error("Error al aplicar respuesta:", e);
                     }
                 }
             });
@@ -1063,7 +1029,6 @@
                         if (peerConnection && peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
                             await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
                         } else {
-                            // Encolar si el candidato llega antes de la descripción remota
                             iceCandidateQueue.push(candidate);
                         }
                     } catch (e) {
@@ -1073,12 +1038,7 @@
             });
         }
 
-        let stats = {
-            comment: 0,
-            sticky: 0,
-            rect: 0,
-            action: 0
-        };
+        let stats = { comment: 0, sticky: 0, rect: 0, action: 0 };
 
         function switchTab(tab) {
             const btnFeed = document.getElementById('tabFeed');
@@ -1124,15 +1084,10 @@
             const chat = document.getElementById('chatMessages');
             const isAction = c.content.includes('ACCIÓN EJECUTADA');
             
-            if (c.content.includes('[STICKY]')) {
-                stats.sticky++;
-            } else if (c.content.includes('[RECT]')) {
-                stats.rect++;
-            } else if (isAction || c.content.includes('⚡ ACCIÓN EJECUTADA')) {
-                stats.action++;
-            } else {
-                stats.comment++;
-            }
+            if (c.content.includes('[STICKY]')) stats.sticky++;
+            else if (c.content.includes('[RECT]')) stats.rect++;
+            else if (isAction || c.content.includes('⚡ ACCIÓN EJECUTADA')) stats.action++;
+            else stats.comment++;
 
             let totalNotes = stats.comment + stats.sticky + stats.rect + stats.action;
             const badgeCountElem = document.getElementById('activityCountBadge');
