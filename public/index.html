@@ -349,7 +349,7 @@
                 </div>
             </div>
 
-            <!-- ZONA INFERIOR DE BITÁCORA PURA -->
+            <!-- ZONA INFERIOR DE BITÁCORA PURA (Sin chat de texto general aquí) -->
             <div class="p-4 bg-slate-900 border-t border-slate-800/80 text-center">
                 <span class="text-[10px] text-slate-500">Usa el botón flotante inferior derecho para chatear y hablar por voz</span>
             </div>
@@ -420,10 +420,10 @@
         var activeTool = 'comment';
         var commentCount = 0;
         
-        // Inicialización del cliente Socket.IO conectado directamente a tu servicio en Render
+        // Conexión Socket.IO apuntando al backend en Render
         var socket = null;
         try {
-            socket = io('https://PROPULSAR-SAS.onrender.com');
+            socket = io('https://propulsar-sas.onrender.com');
         } catch (e) {
             console.warn("Socket.io no disponible.");
         }
@@ -855,7 +855,7 @@
         }
 
         // ==========================================
-        // GESTIÓN DE VOZ: ARQUITECTURA DE CANAL ÚNICO
+        // GESTIÓN DE VOZ: ARQUITECTURA DE CANAL ÚNICO (ESTRELLA / MODERADOR)
         // ==========================================
         async function toggleVoiceCall() {
             const btnToggle = document.getElementById('btnToggleAudio');
@@ -942,11 +942,14 @@
             }
 
             peerConnection.ontrack = (event) => {
+                console.log("Pista de audio central recibida:", event.streams);
                 const remoteAudio = document.getElementById('remoteAudio');
                 if (remoteAudio) {
                     remoteAudio.srcObject = event.streams[0];
-                    remoteAudio.play().catch(err => {
-                        console.warn("Autoplay bloqueado:", err);
+                    remoteAudio.play().then(() => {
+                        console.log("Reproduciendo audio central con éxito.");
+                    }).catch(err => {
+                        console.warn("Autoplay bloqueado por política del navegador. Requiere interacción:", err);
                     });
                 }
             };
@@ -954,6 +957,18 @@
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate && socket) {
                     socket.emit('voice_candidate', { token, candidate: event.candidate });
+                }
+            };
+
+            peerConnection.onconnectionstatechange = () => {
+                console.log("Estado de conexión centralizada:", peerConnection.connectionState);
+                const statusText = document.getElementById('floatVoiceStatus');
+                if(statusText) {
+                    if(peerConnection.connectionState === 'connected') {
+                        statusText.innerText = "Audio Central Conectado";
+                    } else if(peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
+                        statusText.innerText = "Conexión interrumpida";
+                    }
                 }
             };
 
@@ -978,12 +993,17 @@
                 if (!isVoiceConnected) return;
                 try {
                     const pc = createPeerConnection(true);
-                    if (pc.signalingState !== "stable") return;
+                    
+                    if (pc.signalingState !== "stable") {
+                        console.warn("Estado de señalización no estable para oferta:", pc.signalingState);
+                        return;
+                    }
+
                     const offer = await pc.createOffer();
                     await pc.setLocalDescription(offer);
                     socket.emit('voice_offer', { token, offer });
                 } catch (e) {
-                    console.error("Error al crear oferta:", e);
+                    console.error("Error al crear oferta centralizada:", e);
                 }
             });
 
@@ -991,7 +1011,12 @@
                 if (!isVoiceConnected) return;
                 try {
                     const pc = createPeerConnection(false);
-                    if (pc.signalingState !== "stable") return;
+
+                    if (pc.signalingState !== "stable") {
+                        console.warn("Colisión de señalización en oferta. Estado:", pc.signalingState);
+                        return;
+                    }
+
                     await pc.setRemoteDescription(new RTCSessionDescription(offer));
                     
                     while (iceCandidateQueue.length > 0) {
@@ -1003,7 +1028,7 @@
                     await pc.setLocalDescription(answer);
                     socket.emit('voice_answer', { token, answer });
                 } catch (e) {
-                    console.error("Error en oferta entrante:", e);
+                    console.error("Error al procesar la oferta entrante:", e);
                 }
             });
 
@@ -1012,13 +1037,16 @@
                     try {
                         if (peerConnection.signalingState === "have-local-offer") {
                             await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                            
                             while (iceCandidateQueue.length > 0) {
                                 const candidate = iceCandidateQueue.shift();
                                 await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
                             }
+                        } else {
+                            console.warn("Respuesta ignorada por estado incompatible:", peerConnection.signalingState);
                         }
                     } catch (e) {
-                        console.error("Error al aplicar respuesta:", e);
+                        console.error("Error al aplicar la respuesta remota:", e);
                     }
                 }
             });
@@ -1038,7 +1066,12 @@
             });
         }
 
-        let stats = { comment: 0, sticky: 0, rect: 0, action: 0 };
+        let stats = {
+            comment: 0,
+            sticky: 0,
+            rect: 0,
+            action: 0
+        };
 
         function switchTab(tab) {
             const btnFeed = document.getElementById('tabFeed');
@@ -1084,10 +1117,15 @@
             const chat = document.getElementById('chatMessages');
             const isAction = c.content.includes('ACCIÓN EJECUTADA');
             
-            if (c.content.includes('[STICKY]')) stats.sticky++;
-            else if (c.content.includes('[RECT]')) stats.rect++;
-            else if (isAction || c.content.includes('⚡ ACCIÓN EJECUTADA')) stats.action++;
-            else stats.comment++;
+            if (c.content.includes('[STICKY]')) {
+                stats.sticky++;
+            } else if (c.content.includes('[RECT]')) {
+                stats.rect++;
+            } else if (isAction || c.content.includes('⚡ ACCIÓN EJECUTADA')) {
+                stats.action++;
+            } else {
+                stats.comment++;
+            }
 
             let totalNotes = stats.comment + stats.sticky + stats.rect + stats.action;
             const badgeCountElem = document.getElementById('activityCountBadge');
