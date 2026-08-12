@@ -31,14 +31,34 @@ app.get('/documento/:token', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-    // Unirse a la sala del documento para anotaciones
+    let currentToken = null;
+    let currentUserId = null;
+
+    // Unirse a la sala del documento para anotaciones y sincronización en tiempo real[cite: 4]
     socket.on('join_document', (token) => {
+        currentToken = token;
         socket.join(token);
     });
 
-    // Sincronización de anotaciones en el lienzo
+    // Sincronización de anotaciones en el lienzo[cite: 4]
     socket.on('send_comment', (data) => {
         socket.to(data.token).emit('new_comment_received', data.commentData);
+    });
+
+    // ==========================================
+    // SINCRONIZACIÓN EN TIEMPO REAL (DIBUJOS, CURSORES Y SCROLL)
+    // ==========================================
+    socket.on('draw_action', (data) => {
+        socket.to(data.token).emit('draw_action', data);
+    });
+
+    socket.on('cursor_sync', (data) => {
+        currentUserId = data.userId;
+        socket.to(data.token).emit('cursor_sync', data);
+    });
+
+    socket.on('scroll_sync', (data) => {
+        socket.to(data.token).emit('scroll_sync', data);
     });
 
     // ==========================================
@@ -70,6 +90,13 @@ io.on('connection', (socket) => {
 
     socket.on('voice_candidate', ({ token, candidate }) => {
         socket.to(token + '_voice').emit('voice_candidate', candidate);
+    });
+
+    // Manejo de desconexión para limpiar cursores remotos
+    socket.on('disconnect', () => {
+        if (currentToken && currentUserId) {
+            socket.to(currentToken).emit('user_disconnected', currentUserId);
+        }
     });
 });
 
